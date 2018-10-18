@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+# -*- Python -*-
+
+# Test compiler against suite of Python programs.  
+
+import os, sys, re
+from subprocess import Popen, PIPE
+from getopt import getopt, GetoptError
+
+def Usage():
+    print('''
+Usage: test-proj3 [ --errors ] [ --compiler=COMPILER ] \
+                  [ --show=N ] DIR/BASE.py ...
+    Runs COMPILER (default ./apyc) on each DIR/BASE.py with the command
+        COMPILER -o BASE BASE.py
+    In the absence of the --errors option, runs the resulting program (BASE).
+    If there is a file BASE.args, supplies command-line arguments from that 
+    file.  If there is a file DIR/BASE.in, uses that as the standard input.  
+    Otherwise, uses the empty file for the standard input.  Compares 
+    the output to file DIR/BASE.std, if that is present, and otherwise
+    just checks that the compiled program exits normally.  
+
+    With the --errors option, checks that the program exits with a
+    non-zero exit code.
+
+    With the --show option, reports details of up to N errors, and then
+    simply reports failing tests.
+
+    Reports results and exits with 0 if there are no errors, and
+    with 1 otherwise.''', file=sys.stderr)
+
+def Run(command, *args, **keys):
+    if args:
+        command = command % args
+    proc = Popen(command, shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    inp = keys.get('stdin', '')
+    if type(inp) is str:
+        inp = inp.encode('utf-8')
+    out, err = proc.communicate(inp)
+    return proc.returncode, out.decode('utf-8'), err.decode('utf-8')
+
+def Remove(file):
+    try:
+        os.unlink(file)
+    except OSError:
+        pass
+
+def Contents(file):
+    try: 
+        f = open(file)
+        r = f.read()
+        f.close()
+        return r
+    except:
+        return ""
+
+def Compile(prog, executable):
+    global Stdout, Stderr, RC
+    RC, Stdout, Stderr = Run("%s -o %s %s", compiler, executable, prog)
+    return RC == 0
+
+def Execute(prog, inp, commandLineArgs=""):
+    global Stdout, Stderr, RC
+    commandLineArgs = commandLineArgs and " " + commandLineArgs
+    RC, Stdout, Stderr = Run("./%s%s", prog, commandLineArgs, stdin=inp)
+    return RC == 0
+
+def HasError(errout):
+    return re.search (r'(?m)^[^:]+\.py:\d+:\s*\S', errout)
+
+try:
+    opts, tests = getopt (sys.argv[1:], 'h',
+                          ['help', 'errors', 'compiler=', 'show='])
+except GetoptError:
+    Usage()
+    sys.exit(1)
+
+compiler = './apyc'
+errors = False
+retain = False
+runtime = None
+show = None
+
+for opt, val in opts:
+    if opt in ( '-h', '--help' ):
+        Usage()
+        sys.exit(0)
+    elif opt == '--errors':
+        errors = True
+    elif opt == '--compiler':
+        compiler = val
+    elif opt == '--show':
+        show = int(val)
+
+N = 0
+OK = 0
+
+for f in tests:
+    N += 1
+    dir, file = os.path.split(f)
+    base, ext = os.path.splitext(file)
+    print(base + ".py:", end=" ")
+
+    executable = base
+    inp = os.path.join(dir, base + ".in")
+    std = Contents (os.path.join(dir, base + ".std"))
+    args = Contents (os.path.join(dir, base + ".args"))
+    msg = "OK"
+    if not Compile(f, executable):
+        if RC >= 128:
+            msg = "FAIL (compiler crash)"
+        else:
+            msg = "FAIL (wrong exit code from compiler)"
+    elif Stderr:
+        msg = "FAIL (error messages from compiler)"
+    elif errors:
+        if Execute(executable, Contents(inp), args) or not Stderr:
+            msg = "FAIL (execution errors not caught)"
+    elif not Execute(executable, Contents(inp), args) or Stderr:
+        msg = "FAIL (execution error)"
+    elif std and std != Stdout:
+        msg = "FAIL (wrong output)"
+    Remove(executable)
+
+    print(msg)
+    if msg == "OK":
+        OK += 1
+    elif show:
+        show -= 1
+        print("Python source that caused this problem (%s):" % file)
+        print("-" * 50)
+        sys.stdout.write (Contents(f))
+        print("-" * 50)
+        print()
+    elif show == 0:
+        print("  [Source file not shown: exceeded limit on number of files to display.]")
+
+print
+print("Ran %d tests." % N, end=" ")
+if OK == N:
+    print("All passed.")
+    sys.exit(0)
+else:
+    print("%d failed." % (N - OK))
+    sys.exit(1)
+

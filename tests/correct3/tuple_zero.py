@@ -1,0 +1,2 @@
+tupl = ()
+print tupl

@@ -1,0 +1,8 @@
+*~
+*.o
+*.ast
+*.output
+apyc-parser.cc
+apyc-lexer.cc
+.depend
+

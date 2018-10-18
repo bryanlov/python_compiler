@@ -1,0 +1,8 @@
+apyc
+*~
+__pycache__
+*.dast
+*.ast
+*.o
+
+
